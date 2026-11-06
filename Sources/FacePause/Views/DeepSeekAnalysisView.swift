@@ -31,7 +31,7 @@ struct DeepSeekAnalysisView: View {
                         Button("连接 DeepSeek", action: openSettings).buttonStyle(PillButtonStyle(compact: true))
                     }
                     if store.isAnalyzing {
-                        ProgressView().controlSize(.small)
+                        OrganicSpinner(lineWidth: 2, period: 1.2).frame(width: 14, height: 14)
                         Text("正在解读，通常需数十秒…").font(.caption)
                     }
                 }
@@ -47,7 +47,7 @@ struct DeepSeekAnalysisView: View {
                     Divider().overlay(Theme.ink)
                     Text("数据质量").font(.caption.weight(.semibold))
                     Text(report.content.quality).font(.callout).lineSpacing(4)
-                }.padding(20).outlined(RoundedRectangle(cornerRadius: 18))
+                }.padding(20).outlined(RoundedRectangle(cornerRadius: 18)).reveal(0)
                 ForEach(Array(report.content.findings.enumerated()), id: \.offset) { index, finding in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 10) {
@@ -57,9 +57,10 @@ struct DeepSeekAnalysisView: View {
                         Text(finding.evidence).font(.caption).lineSpacing(3)
                         Text(finding.interpretation).font(.callout).lineSpacing(4)
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
+                        .reveal(0.08 + Double(index) * 0.06)
                 }
-                bulletSection("解读局限", items: report.content.limitations)
-                bulletSection("下一步建议", items: report.content.suggestions)
+                bulletSection("解读局限", items: report.content.limitations).reveal(0.3)
+                bulletSection("下一步建议", items: report.content.suggestions).reveal(0.36)
                 Text(metadata(report)).font(.caption2)
                 Text("来源：DeepSeek 生成，可能有误；与 FacePhys 原始报告、本地规则提示分别展示，不作诊断。")
                     .font(.caption2).fixedSize(horizontal: false, vertical: true)

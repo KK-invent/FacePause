@@ -8,6 +8,8 @@ struct ResultsView: View {
     var onOpenSettings: () -> Void
     var onRemeasure: () -> Void
     @LocalViewState<Int> private var tab = 0
+    /// +1 when moving to a tab on the right, -1 to the left; content slides in from that side.
+    @LocalViewState<CGFloat> private var tabDirection = 1
     @Namespace private var tabSpace
 
     var body: some View {
@@ -15,7 +17,7 @@ struct ResultsView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .bottom) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(sample ? "示例结果" : "此刻的参考").font(.system(size: 28, weight: .semibold))
+                    Text(sample ? "示例结果" : "此刻的参考").font(Theme.serif(30))
                     Text(sample ? "演示数值 · 没有检测、上传或扣费" : result.date.formatted(date: .abbreviated, time: .shortened))
                         .font(.callout).foregroundStyle(sample ? Theme.red : Theme.ink)
                 }
@@ -25,9 +27,9 @@ struct ResultsView: View {
             }.reveal(0)
             hero.reveal(0.05)
             HStack(spacing: 12) {
-                MetricTile(title: "呼吸估算", value: result.breathingRate, unit: "次/分", icon: "wind")
-                MetricTile(title: "HRV · RMSSD", value: result.rmssd, unit: "毫秒", icon: "waveform.path.ecg")
-                MetricTile(title: "HRV · SDNN", value: result.sdnn, unit: "毫秒", icon: "waveform")
+                MetricTile(title: "呼吸估算", value: result.breathingRate, unit: "次/分", icon: "wind", delay: 0.25)
+                MetricTile(title: "HRV · RMSSD", value: result.rmssd, unit: "毫秒", icon: "waveform.path.ecg", delay: 0.33)
+                MetricTile(title: "HRV · SDNN", value: result.sdnn, unit: "毫秒", icon: "waveform", delay: 0.41)
             }.reveal(0.1)
             Text("“—” 表示本次未返回。信号质量反映采集清晰度，不是准确率或健康分；30 秒的 HRV 只宜谨慎参考，数值不作诊断。")
                 .font(.caption).fixedSize(horizontal: false, vertical: true).reveal(0.12)
@@ -39,11 +41,16 @@ struct ResultsView: View {
             }
             .padding(4).outlined(Capsule())
             .padding(.top, 14).reveal(0.2)
-            Group {
-                if tab == 0 { DeepSeekAnalysisView(store: deepSeek, openSettings: onOpenSettings) }
-                else if tab == 1 { ProviderReportsView(original: result.originalResponse) }
-                else { AllFieldsView(result: result) }
-            }.id(tab).transition(.opacity).animation(.easeOut(duration: 0.2), value: tab)
+            ZStack(alignment: .topLeading) {
+                Group {
+                    if tab == 0 { DeepSeekAnalysisView(store: deepSeek, openSettings: onOpenSettings) }
+                    else if tab == 1 { ProviderReportsView(original: result.originalResponse) }
+                    else { AllFieldsView(result: result) }
+                }
+                .id(tab)
+                .transition(.asymmetric(insertion: .offset(x: 28 * tabDirection).combined(with: .opacity),
+                                        removal: .opacity.animation(.easeOut(duration: 0.12))))
+            }
             if !sample {
                 Label(billingText, systemImage: "creditcard").font(.caption).padding(.top, 4)
             }
@@ -51,7 +58,11 @@ struct ResultsView: View {
     }
 
     private func tabButton(_ title: String, _ index: Int) -> some View {
-        Button { withAnimation(Theme.spring) { tab = index } } label: {
+        Button {
+            guard index != tab else { return }
+            tabDirection = index > tab ? 1 : -1
+            withAnimation(Theme.spring) { tab = index }
+        } label: {
             Text(title).font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(tab == index ? Theme.paper : Theme.ink)
                 .padding(.horizontal, 16).padding(.vertical, 7)
@@ -78,14 +89,18 @@ struct ResultsView: View {
             }
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    BeatingHeart(rate: result.heartRate)
+                    if let rate = result.heartRate, rate > 0 {
+                        BeatingHeartIcon(size: 15, bpm: rate)
+                    } else {
+                        Image(systemName: "heart.fill").font(.callout).foregroundStyle(Theme.red)
+                    }
                     Text("心率估算").font(.callout).foregroundStyle(Theme.red)
                     Spacer()
                     qualityChip
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(result.heartRate.map { String(format: "%.1f", $0) } ?? "—")
-                        .font(.system(size: 64, weight: .medium, design: .rounded)).monospacedDigit()
+                    RollingNumber(value: result.heartRate, delay: 0.15)
+                        .font(.system(size: 64, weight: .medium, design: .rounded))
                         .foregroundStyle(.white)
                     Text("次 / 分").font(.callout).foregroundStyle(Theme.paper)
                     Spacer()
@@ -121,6 +136,7 @@ struct ResultsView: View {
                     Text(String(format: "%02d", index + 1)).font(.caption.monospaced()).foregroundStyle(Theme.red)
                     Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
                 }
+                .reveal(0.22 + Double(index) * 0.07)
             }
         }
         .padding(18).frame(maxWidth: .infinity, alignment: .leading)
@@ -141,60 +157,90 @@ private struct MetricTile: View {
     let value: Double?
     let unit: String
     let icon: String
+    var delay = 0.0
     @LocalViewState<Bool> private var hovering = false
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
         VStack(alignment: .leading, spacing: 12) {
             Label(title, systemImage: icon).font(.caption).lineLimit(1)
             HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(value.map { String(format: "%.1f", $0) } ?? "—")
-                    .font(.system(size: 28, weight: .medium, design: .rounded)).monospacedDigit()
+                RollingNumber(value: value, delay: delay)
+                    .font(.system(size: 28, weight: .medium, design: .rounded))
                 Text(unit).font(.caption)
             }
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(hovering ? Theme.paper : Theme.ink)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(hovering ? Theme.ink : Theme.paper))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.ink, lineWidth: 1))
+        .background {
+            // Ink rises from the bottom edge like a level filling up.
+            ZStack {
+                shape.fill(Theme.paper)
+                Rectangle().fill(Theme.ink).scaleEffect(y: hovering ? 1 : 0, anchor: .bottom)
+            }
+            .clipShape(shape)
+        }
+        .overlay(shape.strokeBorder(Theme.ink, lineWidth: 1))
         .scaleEffect(hovering ? 1.02 : 1)
-        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: hovering)
+        .animation(.spring(response: 0.38, dampingFraction: 0.78), value: hovering)
         .onHover { hovering = $0 }
     }
 }
 
-/// Heart icon that beats at the measured rate; static when no rate was returned.
-private struct BeatingHeart: View {
-    let rate: Double?
-    @LocalViewState<Bool> private var beat = false
-    var body: some View {
-        Image(systemName: "heart.fill").font(.callout).foregroundStyle(Theme.red)
-            .scaleEffect(beat ? 1.18 : 0.94)
-            .onAppear {
-                guard let rate, rate > 0 else { return }
-                withAnimation(.easeInOut(duration: 30 / rate).repeatForever(autoreverses: true)) { beat = true }
-            }
-    }
-}
-
 /// Draws the per-point heart rate returned by the service (data.cardiac.hr_list).
+/// A white dot leads the line as it draws; hovering scrubs along it and reads out each point.
 private struct HeartSparkline: View {
     let values: [Double]
     @LocalViewState<CGFloat> private var drawn = 0
+    @LocalViewState<CGFloat?> private var hoverX: CGFloat? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { geo in
             let points = layout(in: geo.size)
-            ZStack {
-                line(points).trim(from: 0, to: drawn)
+            let path = line(points)
+            ZStack(alignment: .topLeading) {
+                path.trim(from: 0, to: drawn)
                     .stroke(Theme.red, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-                if let last = points.last {
-                    Circle().fill(Theme.paper).frame(width: 7, height: 7)
-                        .position(last).opacity(drawn >= 1 ? 1 : 0)
+                LeadingDot(line: path, progress: drawn).fill(Theme.paper)
+                    .opacity(hoverX == nil ? 1 : 0)
+                if let hoverX, let index = nearest(to: hoverX, in: points) {
+                    readout(at: points[index], value: values[index], size: geo.size)
+                }
+            }
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location): hoverX = location.x
+                case .ended: hoverX = nil
                 }
             }
         }
-        .onAppear { withAnimation(.easeOut(duration: 1.4).delay(0.25)) { drawn = 1 } }
+        .onAppear {
+            if reduceMotion { drawn = 1 } else { withAnimation(Theme.flow.delay(0.25)) { drawn = 1 } }
+        }
     }
 
+    private func readout(at point: CGPoint, value: Double, size: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            Rectangle().fill(Theme.paper).frame(width: 1, height: size.height + 16)
+                .position(x: point.x, y: size.height / 2)
+            Circle().fill(Theme.red).overlay(Circle().strokeBorder(Theme.paper, lineWidth: 2))
+                .frame(width: 11, height: 11).position(point)
+            Text(String(format: "%.1f 次/分", value))
+                .font(.system(size: 11, weight: .semibold, design: .rounded)).monospacedDigit()
+                .foregroundStyle(Theme.ink)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Capsule().fill(Theme.paper))
+                .fixedSize()
+                .position(x: min(max(point.x, 36), size.width - 36), y: -14)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func nearest(to x: CGFloat, in points: [CGPoint]) -> Int? {
+        guard !points.isEmpty else { return nil }
+        return points.indices.min { abs(points[$0].x - x) < abs(points[$1].x - x) }
+    }
     private func layout(in size: CGSize) -> [CGPoint] {
         guard let lo = values.min(), let hi = values.max(), values.count > 1 else { return [] }
         let span = max(hi - lo, 4)  // avoid exaggerating tiny variation
@@ -213,5 +259,20 @@ private struct HeartSparkline: View {
                 path.addCurve(to: point, control1: CGPoint(x: midX, y: previous.y), control2: CGPoint(x: midX, y: point.y))
             }
         }
+    }
+}
+
+/// A dot that sits at the end of `path` trimmed to `progress`, so it rides the line as it draws.
+private struct LeadingDot: Shape {
+    let line: Path
+    var progress: CGFloat
+    var radius: CGFloat = 3.6
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+    func path(in rect: CGRect) -> Path {
+        guard progress > 0.002, let point = line.trimmedPath(from: 0, to: progress).currentPoint else { return Path() }
+        return Path(ellipseIn: CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2))
     }
 }

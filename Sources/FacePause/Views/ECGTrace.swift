@@ -5,7 +5,7 @@ import SwiftUI
 enum ECGRhythm {
     static let bpm: Double = 72
     /// Beat phase (0..<1) at a given time; the R peak sits at 0.30.
-    static func phase(_ time: TimeInterval) -> Double {
+    static func phase(_ time: TimeInterval, bpm: Double = ECGRhythm.bpm) -> Double {
         let beats = time * bpm / 60
         return beats - beats.rounded(.down)
     }
@@ -17,6 +17,8 @@ enum ECGRhythm {
     }
     /// 0...1 kick right after each R peak, for a synced heart pulse.
     static func kick(_ p: Double) -> Double { exp(-pow(p - 0.33, 2) / (2 * 0.045 * 0.045)) }
+    /// "Lub-dub": the main kick followed by a smaller second sound.
+    static func lubDub(_ p: Double) -> Double { kick(p) + 0.45 * exp(-pow(p - 0.5, 2) / (2 * 0.04 * 0.04)) }
 }
 
 /// Monitor-style sweep: the newest signal enters on the right behind a white head dot.
@@ -24,8 +26,9 @@ struct ECGTrace: View {
     var color: Color = Theme.glow
     var window: Double = 2.6
     var lineWidth: CGFloat = 2
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 60)) { context in
+        TimelineView(.animation(minimumInterval: 1 / 60, paused: reduceMotion)) { context in
             let now = context.date.timeIntervalSinceReferenceDate
             Canvas { graphics, size in
                 let radius = lineWidth * 1.8
@@ -50,16 +53,19 @@ struct ECGTrace: View {
     }
 }
 
-/// Heart that kicks on every beat of the decorative rhythm.
+/// Heart that beats "lub-dub". Defaults to the decorative rhythm; pass a measured `bpm` to follow a result.
 struct BeatingHeartIcon: View {
     var size: CGFloat = 14
     var color: Color = Theme.glow
+    var bpm: Double = ECGRhythm.bpm
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 60)) { context in
-            let kick = ECGRhythm.kick(ECGRhythm.phase(context.date.timeIntervalSinceReferenceDate))
+        TimelineView(.animation(minimumInterval: 1 / 60, paused: reduceMotion)) { context in
+            let beat = ECGRhythm.lubDub(ECGRhythm.phase(context.date.timeIntervalSinceReferenceDate, bpm: bpm))
             Image(systemName: "heart.fill").font(.system(size: size))
                 .foregroundStyle(color)
-                .scaleEffect(1 + 0.22 * kick)
+                .scaleEffect(1 + 0.2 * (reduceMotion ? 0 : beat))
         }
+        .accessibilityHidden(true)
     }
 }

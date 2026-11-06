@@ -39,7 +39,7 @@ struct ContentView: View {
     private var topBar: some View {
         HStack(spacing: 10) {
             BrandMark(size: 26)
-            Text("片刻").font(.system(size: 17, weight: .semibold))
+            Text("片刻").font(Theme.serif(20))
             Spacer()
             statusPill
             Menu {
@@ -56,7 +56,7 @@ struct ContentView: View {
                     .outlined(Circle())
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("更多")
-            IconButton(symbol: "gearshape", help: "设置与连接") { model.onOpenSettings?() }
+            IconButton(symbol: "gearshape", help: "设置与连接", hoverTurn: 60) { model.onOpenSettings?() }
         }
     }
 
@@ -64,11 +64,8 @@ struct ContentView: View {
         let prefs = model.preferences
         let healthy = prefs.enabled && (model.canAnalyze || !prefs.automaticUpload)
         return HStack(spacing: 7) {
-            // Black = running normally, red = needs attention, hollow = paused.
-            Circle().fill(healthy ? Theme.ink : prefs.enabled ? Theme.red : Theme.paper)
-                .overlay(Circle().strokeBorder(prefs.enabled ? Color.clear : Theme.ink, lineWidth: 1))
-                .frame(width: 7, height: 7)
-            Text(model.scheduleSummary)
+            StatusDot(kind: healthy ? .running : prefs.enabled ? .attention : .paused)
+            Text(model.scheduleSummary).contentTransition(.opacity)
             Text("·")
             Text("今日 \(prefs.usedToday)/\(prefs.dailyLimit)").monospacedDigit()
         }
@@ -98,10 +95,12 @@ struct ContentView: View {
         VStack(spacing: 0) {
             PulseOrb(phase: model.phase, countdown: model.countdown, elapsed: camera.elapsed, facePresent: camera.facePresent)
                 .reveal(0)
-            Text(headline).font(.system(size: 28, weight: .semibold))
-                .contentTransition(.opacity).padding(.top, 6).reveal(0.06)
+            MomentClock().padding(.top, 2).reveal(0.04)
+            StaggerText(text: headline, font: Theme.serif(30))
+                .padding(.top, 10).reveal(0.06)
             Text(subline).font(.callout).foregroundStyle(Theme.ink).multilineTextAlignment(.center)
-                .contentTransition(.opacity).padding(.top, 8).reveal(0.1)
+                .contentTransition(.opacity).animation(.easeOut(duration: 0.25), value: subline)
+                .padding(.top, 10).reveal(0.1)
             actions.padding(.top, 26).reveal(0.14)
             if model.uiTest {
                 Text("本地验收模式 · 定时与云端上传已停用，不扣费").font(.caption).foregroundStyle(Theme.red).padding(.top, 14)
@@ -155,11 +154,7 @@ struct ContentView: View {
         }
     }
 
-    private func chip(_ icon: String, _ text: String) -> some View {
-        Label(text, systemImage: icon).font(.caption).foregroundStyle(Theme.ink)
-            .padding(.horizontal, 12).padding(.vertical, 7)
-            .outlined(Capsule())
-    }
+    private func chip(_ icon: String, _ text: String) -> some View { HintChip(icon: icon, text: text) }
 
     private var footer: some View {
         Text("面部视频得到的是估算值，仅供个人状态参考，不作诊断。身体不适时，以自身感受和专业评估为准。")
@@ -190,5 +185,73 @@ struct ContentView: View {
                 }.buttonStyle(PillButtonStyle(compact: true)).disabled(!understood)
             }
         }.padding(28).frame(width: 480).background(Theme.paper).foregroundStyle(Theme.ink).tint(Theme.red)
+    }
+}
+
+/// Small hint capsule that fills black from the centre on hover.
+private struct HintChip: View {
+    let icon: String
+    let text: String
+    @LocalViewState<Bool> private var hovering = false
+    var body: some View {
+        Label(text, systemImage: icon).font(.caption)
+            .foregroundStyle(hovering ? Theme.paper : Theme.ink)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .hoverInk(Capsule(), active: hovering)
+            .scaleEffect(hovering ? 1.04 : 1)
+            .animation(Theme.springy, value: hovering)
+            .onHover { hovering = $0 }
+    }
+}
+
+/// Black = running normally (breathes slowly), red = needs attention (pulses), hollow = paused (still).
+private struct StatusDot: View {
+    enum Kind { case running, attention, paused }
+    let kind: Kind
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: kind == .paused || reduceMotion)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            Circle().fill(kind == .running ? Theme.ink : kind == .attention ? Theme.red : Theme.paper)
+                .overlay(Circle().strokeBorder(kind == .paused ? Theme.ink : Color.clear, lineWidth: 1))
+                .scaleEffect(reduceMotion ? 1 : scale(t))
+        }
+        .frame(width: 7, height: 7)
+        .animation(Theme.spring, value: kind)
+    }
+    private func scale(_ t: TimeInterval) -> Double {
+        switch kind {
+        case .running: return 0.7 + 0.3 * Breath.level(t)
+        case .attention: return 0.65 + 0.35 * abs(cos(t * .pi / 1.1))
+        case .paused: return 1
+        }
+    }
+}
+
+/// "22:24 · 星期四" — the moment itself, with a colon that blinks softly every second.
+private struct MomentClock: View {
+    private static let weekday: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "EEEE"
+        return formatter
+    }()
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let parts = Calendar.current.dateComponents([.hour, .minute, .second], from: context.date)
+            HStack(spacing: 0) {
+                Text(String(format: "%02d", parts.hour ?? 0))
+                Text(":").foregroundStyle(Theme.red)
+                    .opacity((parts.second ?? 0) % 2 == 0 ? 1 : 0.15)
+                    .animation(.easeInOut(duration: 0.45), value: parts.second)
+                Text(String(format: "%02d", parts.minute ?? 0))
+                    .contentTransition(.numericText()).animation(.snappy, value: parts.minute)
+                Text("  ·  " + Self.weekday.string(from: context.date))
+            }
+            .font(.system(size: 12, weight: .medium, design: .rounded)).monospacedDigit()
+            .tracking(1)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(context.date.formatted(date: .omitted, time: .shortened))
+        }
     }
 }

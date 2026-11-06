@@ -27,6 +27,7 @@ import FaceCore
             Self.applyLayoutPreviewPhase(model)
             if ProcessInfo.processInfo.arguments.contains("--overlay-test") { windows?.openVisualTestWindow() }
             else { windows?.openDashboard() }
+            UISnapshots.scheduleIfRequested(uiTest: model.uiTest)
         }
     }
     /// UI-test only: `--layout-phase countdown|recording|analyzing` shows that state without camera or network.
