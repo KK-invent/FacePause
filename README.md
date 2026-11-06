@@ -1,0 +1,113 @@
+# FacePause · 片刻 v0.5.0
+
+开发接手与已知优化项见 `CLAUDE_HANDOFF.md`。
+
+v0.5 新增 DeepSeek 解读：结果页默认打开「DeepSeek 解读」，手动点击「生成本次解读」后，使用 `deepseek-flash` 解释当前检测的数值依据、局限和下一步建议。报告与本次记录一起保存，重启后恢复；不会在每次检测后自动调用。解读、原始数据和 FacePhys 分析保持独立来源。
+
+v0.4 界面：主窗口改为无侧栏单栏，首页只保留会呼吸的光圈与“立即检测”；检测时光圈变为倒计时与 30 秒进度环。结果页以心率和服务返回的逐点心率曲线（`hr_list`）为主，“FacePhys 分析”和“全部数据”用胶囊切换，字段一个不少。顶部浮层在采集中收成细胶囊，出结果时展开。v0.4.2 起界面只用纯黑、纯白和一种红色，不用渐变、光晕或阴影（含扁平应用图标），录制时主窗口光圈和顶部浮层显示红色心电图扫描线与同步跳动的心形；这是固定节奏（约 72 次/分）的动画，不是实时测量。计费概览改读当前接口的 `tokens_deducted` / `remaining_tokens`，旧字段仍兼容。
+
+一个常驻 macOS 菜单栏的面部生理信息参考工具。按设定间隔主动采集约 30 秒视频，录制时不显示摄像头画面；屏幕顶部的深色胶囊浮层展示提醒、倒计时、上传进度和结果。
+
+正式应用安装于 `/Applications/FacePause.app`，运行时同时显示程序坞图标和菜单栏入口。启动或点击程序坞图标会打开主窗口；关闭主窗口仍继续常驻。项目 `dist/` 是构建产物，日常使用打开“应用程序”里的 FacePause。
+
+## 钥匙串授权与固定签名
+
+v0.3.1 起使用固定的本机签名证书，签名要求同时绑定证书指纹与 `local.facepause.mac`，不再使用临时 ad-hoc 签名。但后续真实验证发现：同一构建重启可静默读钥匙串，换构建后仍可能需要重新授权，固定签名尚未完全解决此问题。v0.5 最终换包后 FacePhys 和 DeepSeek 均遇到待授权；请在设置中点击各自的授权按钮，由用户完成 macOS 密码确认。已保存报告仍可阅读。
+
+- 签名私钥只存于个人登录钥匙串；没有修改系统根证书、TLS 信任、TCC 数据库、Gatekeeper 或其他系统安全开关。
+- 正常启动和后台检测使用不允许弹窗的钥匙串读取。同一次运行在内存中复用已授权密钥；锁屏/睡眠时清除该缓存，恢复会话后静默重读。不会把 Secret 放入 UserDefaults 或明文文件。
+- 只有用户点击设置里的“授权钥匙串访问”或保存密钥，才允许交互式授权。迁移后的首次系统询问应选“始终允许”。
+- 摄像头先读取系统授权状态，已允许则直接复用；只有 `notDetermined` 才请求一次。已拒绝/受限制时不重复弹窗，提供前往系统设置的提示。
+- 手动撤销授权、更换 Mac 或签名证书、钥匙串被手动锁定等情况仍由 macOS 安全策略控制，不绕过。
+
+开发更新必须运行现有构建脚本，禁止重新使用 `codesign --sign -`。`script/sign_app.sh` 从本机应用支持目录读取公开指纹配置，缺失时直接停止，不偷偷换身份。新开发机器可显式运行 `python3 script/setup_local_signing.py` 建立该机器自己的身份；该步骤需要已有 cryptography Python 库，并可能需要一次系统签名授权。它通过内存管道导入证书/私钥，不在磁盘落地私钥、P12 或导入密码。私钥未包含在项目或 App 分发包中。
+
+## 完整结果与服务商报告
+
+从 v0.3 起，成功响应的全部数据按模块展开：包括心率/HRV、时间序列、血压、血氧、心理相关评分、表情、面部动作、行为眼动、面部属性、活体、音频以及服务端新增字段。数组逐项展开；0、false、null 和空数组/空对象均保留，不静默丢弃。未返回的模块不捏造数据。
+
+如果服务返回诊断、分析、总结、解读或建议文字，界面在“FacePhys 返回的分析”中完整显示，并标明来源；App 自己的规则提示单独放在“App 本地日常提示”。服务商输出不等于经过核实的医学或心理结论，没有报告时不代写。
+
+支持搜索字段、复制完整原始 JSON、导出 JSON。复制/导出不受当前搜索条件影响；原始响应按字节保留为每次记录目录中的 `response.json`，同时嵌入 `result.json` 以便恢复显示。启动会恢复最近一次已保存结果。
+
+v0.1/v0.2 只保存精简结果，不能从那些记录还原已经丢弃的完整响应。旧记录仍可打开，并显示明确说明。完整展示不更改 FacePhys Key 的字段集、套餐或计费参数。
+
+## 日常使用
+
+1. 在访达的“应用程序”中打开 FacePause。启动会打开主窗口；可以关闭窗口，应用仍在程序坞和菜单栏运行。
+2. 点击菜单栏的“暂停 + 脉搏”图标，可立即检测、暂停定时检测、打开设置或退出。
+3. 在设置中保存自己的 FacePhys V3 Key ID 与 Secret，再测试连接。密钥只存入这台 Mac 的钥匙串，不发到聊天。
+4. 当前授权默认：每 60 分钟、09:00–22:00、每日最多 6 次分析，采集后自动上传并扣费。间隔、工作时段、次数上限和自动上传开关都可调整。
+5. 检测前浮层提醒 5 秒，可以取消。之后在本机检查是否有清晰的单人面部，再录制约 30 秒。采集结束即关闭摄像头。
+6. 结果在浮层短暂显示，点击“查看详情”打开主窗口。菜单中的“预览灵动岛效果”仅展示示例。
+
+关闭窗口不会退出应用；需要停止常驻，请在菜单栏选择“退出片刻”。未添加登录启动项。只有应用运行时，定时检测才工作。
+
+## 自动检测和费用
+
+- 2026-10-31 用户明确授权了定时自动上传扣费，并选择 60 分钟间隔。每日上限默认 6 次，可在设置中调整。
+- 次数限制包含全部已预留的分析提交，包括失败或超时；重启应用不会重置当天次数，跨天才重置。
+- 次数上限不是金额上限。FacePhys 依据视频输入量和 Key 的字段集收费，本应用不修改字段集，也不承诺实时单次报价。
+- 未保存 Key 时不会自动启动采集或上传。手动本地采集仍可使用。
+- 锁屏、睡眠、会话切换、忙于本次测量或有待处理视频时跳过；唤醒后重新等待一个间隔，不追赶补跑。
+- 预检没有清晰单人面部时跳过；采集中单人面部有效采样不足 60% 时只保留本地视频，不上传。这是入镜检查，不是身份识别，也不代表生理数据质量合格。
+- 一旦云端分析失败或超时，定时检测自动暂停，等待核对控制台记录后手动恢复，不自动重试。
+- 关闭“录完自动上传并扣费”后，每次采集结束等待明确确认；已经开始的云端处理不保证能撤回。
+- Mac 系统的绿色摄像头指示灯正常显示。浮层可以收起，不会假装摄像头未工作。
+
+## 数据与建议
+
+本地视频、结果和完整原始响应存于 `~/Library/Application Support/FacePause/Sessions/`；不自动删除，可在主窗口打开目录管理。测试录像也保留在这里，未打入应用包。云端保存策略由 FacePhys 决定。
+
+视频仅上传给 FacePhys。使用 HTTPS、HMAC 签名、视频 SHA-256 和稳定幂等编号；认证头不发往视频存储，拒绝重定向，不打印签名上传 URL。2026-10-31 用户另行授权接入 DeepSeek，对已有返回数据生成解读，规则见下节。
+
+首页概览展示心率、HRV（心跳间隔变化）和呼吸估算，下方展开服务返回的全部数据与报告。App 只用本地规则给出保守的日常提示；信号质量缺失或偏低时提示复测。App 不自行推断心理健康、人格、真实情绪或睡眠质量，不做诊断；相关服务商字段仅标明来源后原样展示。
+
+## DeepSeek 解读
+
+- 模型固定为 `deepseek-flash`，请求发往官方 `https://api.deepseek.com/chat/completions`。非思考模式，单次输出最多 2800 tokens，结构化 JSON 报告；不自动切换模型或重试。
+- 设置 →「DeepSeek 数据解读」可保存/更换 API Key、授权钥匙串和测试连接。连接测试只读取可用模型，不提交测量数据。密钥单独存于本机钥匙串 `local.facepause.credentials` 的 `deepseek` 条目；不写入源码、偏好或分发包。
+- 结果页 →「生成本次解读」。每次点击会产生 DeepSeek 文本费用；按钮在处理中禁用。「重新生成」会再次计费，原有成功报告在新调用失败时仍保留。
+- 仅发送 cardiac、bp、spo2、psych、emotion、face_au、behavior、liveness 模块内筛选后的数值/布尔/null、数值序列和采集时长。身份属性、人口先验、音频、视频、自由文本、网址、凭据和计费字段不发送；未知模块保留在本机原始数据中。输入超过 128 KiB 时停止，不偷偷截断。
+- 提示词位于 `Sources/FaceCore/DeepSeekAnalysis.swift`。要求引用实际字段和值，质量不足时先复测，短片段 HRV 不作诊断，心理/情绪/睡眠评分不代表真实心理状态，未知量表不猜测。DeepSeek 输出仍可能出错。
+- 报告存于对应记录的 `deepseek-analysis.json`，权限 0600。原始响应摘要绑定报告，避免换一条记录后误用旧解读。重启读取缓存不调用 API；本地旧记录没有完整响应、示例或 UI 测试模式均不调用 DeepSeek。
+- 锁屏、睡眠、切换结果或退出时取消等待；已经发送的请求可能仍计费。网络失败、输出为空、被截断或结构错误均明确提示，保持原始 FacePhys 结果不变。
+
+## 构建与验证
+
+SwiftUI + AppKit + AVFoundation + Vision + CryptoKit + Security；没有第三方运行依赖。当前产物为 Apple Silicon 本机固定证书签名应用，尚未做 Apple Developer ID 公证或验证跨设备分发。
+
+```sh
+./script/build_and_run.sh                 # 正常运行，启用用户设定的定时策略
+./script/build_and_run.sh --install       # 首次安装到 /Applications 并启动
+./script/build_and_run.sh --ui-test       # 本地验收模式：禁止定时触发和云端上传
+./script/build_and_run.sh --overlay-test  # 相同浮层视图的可访问布局验收窗口
+./script/build_and_run.sh --build-only
+./script/test.sh                         # 36 项离线逻辑/网络模拟测试
+```
+
+`--ui-test` 使用独立偏好存储，不修改正式运行设置，也不会触发自动收费。`--overlay-test` 额外打开普通验收窗口，方便检查与非激活浮层相同的视图布局；正式浮层不抢键盘焦点。
+
+`script/swift.sh` 在项目 `.build/` 内处理本机升级后遗留的 Swift 包描述接口版本不一致，不修改系统工具链。完整 Xcode 已安装时也可以运行 `./script/swift.sh test`；CLT-only 环境用 `script/test.sh` 执行同一组测试方法。
+
+已安装后，普通构建/运行会同步更新 `/Applications/FacePause.app` 并从该位置启动。更新旧包会保存在 `work/app-update-backups/`；测试模式与仅构建模式不覆盖正式安装。签名身份和 Application Support 中的数据、偏好保持不变。
+
+目录：FaceCore 包含接口、结果解析、日程与额度规则；Services 包含摄像头、会话状态、浮层窗口与安全存储；Stores 管理运行状态与持久设置；Views 提供菜单、设置、主窗口和胶囊浮层。
+
+## 图标
+
+内置 imagegen 生成深松绿圆角图标，薄荷白的“暂停双竖线 + 脉搏”符号。源图与打包图标位于 `Support/Assets/`，菜单栏使用匹配的单色绘制版本。提示词与生成方式见该目录 `LOGO.md`。
+
+## 一手依据
+
+- [FacePhys Agent 指引](https://www.facephys.com/docs/agent.md)
+- [FacePhys OpenAPI](https://www.facephys.com/openapi.json)
+- [FacePhys 字段说明](https://www.facephys.com/console/docs?s=results)
+- [FacePhys 计费说明](https://www.facephys.com/console/docs?s=billing)
+- [Apple AVFoundation 摄像头采集](https://developer.apple.com/documentation/avfoundation/setting-up-a-capture-session)
+- [Apple 非激活窗口](https://developer.apple.com/documentation/appkit/nswindow/stylemask-swift.struct)
+- [AHA 心率参考](https://www.heart.org/en/health-topics/high-blood-pressure/the-facts-about-high-blood-pressure/all-about-heart-rate-pulse)
+- [Apple：代码签名身份与钥匙串授权](https://developer.apple.com/library/archive/technotes/tn2206/)
+- [Apple：摄像头授权状态](https://developer.apple.com/documentation/avfoundation/avcapturedevice/authorizationstatus(for:))
+
+真实验收状态见 `VALIDATION.md`。模拟测试和示例结果不代表真实云端分析通过。
